@@ -19,6 +19,9 @@
 #define MyAppPublisher "K5JSG"
 #define MyAppURL "https://github.com/K5JSG/POTA-Activator-Park-Activations"
 #define MyAppExeName "POTA Activator Park Activations.exe"
+; This installer's AppId (see [Setup]), also used by [Code] to tell its own
+; Installed Apps entry apart from older copies.
+#define MyAppId "{{62A39724-A285-4A61-A519-B6C98BA075B2}"
 
 ; Overridable from the command line: iscc /DMyAppVersion=1.4.0 ...
 #ifndef MyAppVersion
@@ -32,7 +35,7 @@
 ; build's ProductCode/UpgradeCode - that was a different installer
 ; technology entirely, and its ProductCode changed on every release anyway
 ; (VS Installer Projects regenerates it per version, unlike this one).
-AppId={{62A39724-A285-4A61-A519-B6C98BA075B2}
+AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -100,20 +103,22 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName} now"; \
 
 [Code]
 
-// Every update is a clean uninstall + reinstall rather than an in-place
-// overwrite, so Installed Apps only ever shows one entry and no file dropped
-// by a newer version is left behind in the program folder. That covers:
-//   - earlier releases of this Inno Setup installer (same AppId),
-//   - the old Visual Studio Installer Projects MSI builds, which have their
-//     own entries - including the ones from before the rename, when the
-//     product was called "POTA Check".
+// Updates install IN PLACE over the existing copy (same AppId), so Installed
+// Apps keeps one entry that just shows the new version number, and the
+// desktop and Start menu shortcuts stay where they are. Before the new files
+// go in:
+//   - every OTHER installed copy of this app is silently uninstalled: the old
+//     Visual Studio Installer Projects MSI builds, including the ones from
+//     before the rename, when the product was called "POTA Check", plus any
+//     stray entry registered somewhere other than this installer's own;
+//   - the program folder is emptied (all but the uninstaller), so no file
+//     that an older version shipped and this one dropped is left behind.
 // User data lives in %LocalAppData% (see GetWritableAppDataFolder in
 // Form1.cs) and is never touched, so caches and offline maps survive.
 
 const
   UninstallKeyRoot = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
   LegacyAppName = 'POTA Check';
-
 var
   OldInstallDirs: TArrayOfString;
 
@@ -121,6 +126,20 @@ function IsOurProductName(const Name: String): Boolean;
 begin
   Result := (CompareText(Name, '{#MyAppName}') = 0) or
             (CompareText(Name, LegacyAppName) = 0);
+end;
+
+// This installer's own Installed Apps entry: the one an upgrade updates in
+// place instead of removing. Admin installs in 64-bit mode register it under
+// HKLM's 64-bit view.
+function IsOwnEntry(RootKey: Integer; const SubkeyName: String): Boolean;
+begin
+  Result := (RootKey = HKLM64) and
+            (CompareText(SubkeyName, ExpandConstant('{#MyAppId}_is1')) = 0);
+end;
+
+function SameDir(const A, B: String): Boolean;
+begin
+  Result := CompareText(RemoveBackslashUnlessRoot(A), RemoveBackslashUnlessRoot(B)) = 0;
 end;
 
 procedure RememberOldInstallDir(const Dir: String);
@@ -133,13 +152,19 @@ begin
   OldInstallDirs[N] := Dir;
 end;
 
-// Only ever wipes a folder that is clearly this app's own (named after the
+// Only ever touches a folder that is clearly this app's own (named after the
 // product), never some general-purpose folder the user may have picked on
 // the directory page.
+function IsOurAppFolder(const Dir: String): Boolean;
+begin
+  Result := (Dir <> '') and DirExists(Dir) and
+            (IsOurProductName(ExtractFileName(Dir)));
+end;
+
 procedure DeleteAppFolder(Dir: String);
 begin
   Dir := RemoveBackslashUnlessRoot(Dir);
-  if (Dir <> '') and DirExists(Dir) and IsOurProductName(ExtractFileName(Dir)) then
+  if IsOurAppFolder(Dir) then
   begin
     DelTree(Dir, True, True, True);
     // The K5JSG publisher folder above it - RemoveDir only succeeds if empty
@@ -147,9 +172,9 @@ begin
   end;
 end;
 
-// Belt and braces: an Inno uninstaller re-launches itself from %TEMP%, and
-// deletes its own unins*.exe as the very last step, so this confirms it has
-// really finished before the new files go in.
+// An Inno uninstaller re-launches itself from %TEMP% and deletes its own
+// unins*.exe as the very last step, so this confirms it has really finished
+// before the new files go in.
 procedure WaitForFileGone(const FileName: String; TimeoutMs: Integer);
 begin
   while FileExists(FileName) and (TimeoutMs > 0) do
@@ -160,7 +185,8 @@ begin
 end;
 
 // Silently uninstalls every installed copy of this app registered under
-// RootKey. Returns an error message, or '' if everything went fine.
+// RootKey, except this installer's own entry (see IsOwnEntry). Returns an
+// error message, or '' if everything went fine.
 function UninstallOldVersions(RootKey: Integer): String;
 var
   Names: TArrayOfString;
@@ -174,7 +200,8 @@ begin
   for I := 0 to GetArrayLength(Names) - 1 do
   begin
     Key := UninstallKeyRoot + '\' + Names[I];
-    if RegQueryStringValue(RootKey, Key, 'DisplayName', DisplayName) and
+    if not IsOwnEntry(RootKey, Names[I]) and
+       RegQueryStringValue(RootKey, Key, 'DisplayName', DisplayName) and
        IsOurProductName(DisplayName) and
        RegQueryStringValue(RootKey, Key, 'Publisher', Publisher) and
        (CompareText(Publisher, '{#MyAppPublisher}') = 0) then
@@ -184,8 +211,8 @@ begin
 
       if RegQueryDWordValue(RootKey, Key, 'WindowsInstaller', IsMsi) and (IsMsi = 1) then
       begin
-        // Old MSI build: the subkey name is its ProductCode. VS Installer
-        // Projects didn't record InstallLocation, so fall back to its default.
+        // An MSI build: the subkey name is its ProductCode, and it may not
+        // have recorded InstallLocation, so fall back to the usual folder.
         RememberOldInstallDir(ExpandConstant('{autopf}\{#MyAppPublisher}\') + DisplayName);
         if not Exec(ExpandConstant('{sys}\msiexec.exe'),
                     '/x ' + Names[I] + ' /qn /norestart',
@@ -223,6 +250,73 @@ begin
   end;
 end;
 
+// Removes every other installed copy (see UninstallOldVersions) and whatever
+// their uninstallers left behind. Returns an error message for
+// PrepareToInstall, or '' if everything went fine.
+function RemoveOtherCopies(): String;
+var
+  I: Integer;
+begin
+  Result := UninstallOldVersions(HKLM64);
+  if Result = '' then Result := UninstallOldVersions(HKLM32);
+  if Result = '' then Result := UninstallOldVersions(HKCU);
+
+  if Result <> '' then
+  begin
+    Result := Result + #13#10#13#10 +
+      'Please uninstall it from Settings > Apps > Installed apps, then run this setup again.';
+    Exit;
+  end;
+
+  // Files the old uninstallers didn't remove themselves. The folder being
+  // upgraded is left to CleanAppFolder, which keeps its uninstaller.
+  for I := 0 to GetArrayLength(OldInstallDirs) - 1 do
+    if not SameDir(OldInstallDirs[I], ExpandConstant('{app}')) then
+      DeleteAppFolder(OldInstallDirs[I]);
+end;
+
+// What the folder cleanup below leaves in place: the uninstaller
+// (unins000.exe/.dat/.msg), which the upgraded copy carries on using.
+function KeepOnUpgrade(const Name: String): Boolean;
+begin
+  Result := (CompareText(Copy(Name, 1, 5), 'unins') = 0);
+end;
+
+// Empties the program folder just before the new version's files are copied
+// in, so nothing an older version installed and this one no longer ships is
+// left behind.
+procedure CleanAppFolder();
+var
+  Dir: String;
+  FindRec: TFindRec;
+begin
+  Dir := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
+  if not IsOurAppFolder(Dir) then Exit;
+
+  if FindFirst(Dir + '\*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') and not KeepOnUpgrade(FindRec.Name) then
+        begin
+          if FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0 then
+            DelTree(Dir + '\' + FindRec.Name, True, True, True)
+          else
+            DeleteFile(Dir + '\' + FindRec.Name);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+    CleanAppFolder();
+end;
+
 // Stop a running instance before installing or uninstalling, otherwise the
 // exe is locked and the file copy fails.
 procedure StopRunningApp();
@@ -236,30 +330,13 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  I: Integer;
   ResultCode: Integer;
 begin
   StopRunningApp();
   Exec(ExpandConstant('{cmd}'),
        '/C taskkill /F /IM "' + LegacyAppName + '.exe" >nul 2>&1',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-
-  Result := UninstallOldVersions(HKLM64);
-  if Result = '' then Result := UninstallOldVersions(HKLM32);
-  if Result = '' then Result := UninstallOldVersions(HKCU);
-
-  if Result <> '' then
-  begin
-    Result := Result + #13#10#13#10 +
-      'Please uninstall it from Settings > Apps > Installed apps, then run this setup again.';
-    Exit;
-  end;
-
-  // Anything the old uninstallers left behind (files they didn't install
-  // themselves, or files from versions older than their own records)
-  for I := 0 to GetArrayLength(OldInstallDirs) - 1 do
-    DeleteAppFolder(OldInstallDirs[I]);
-  DeleteAppFolder(ExpandConstant('{app}'));
+  Result := RemoveOtherCopies();
 end;
 
 function InitializeUninstall(): Boolean;

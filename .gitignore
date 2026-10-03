@@ -368,4 +368,5 @@ FodyWeavers.xsd
 # Claude Code session config, hooks, and MCP server config - local tooling,
 # not part of the project.
 .claude/
+CLAUDE.md
 .mcp.json

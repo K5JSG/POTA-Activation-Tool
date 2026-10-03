@@ -14,7 +14,7 @@
     <Description>This program is designed to get all parks in a state with their counties, and then compare it to a adif file.  It will mark any parks already worked automatically.  You can then export your finished report as either a .csv or .xlxm file.</Description>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <ApplicationIcon>logo.ico</ApplicationIcon>
-    <Version>1.14.0</Version>
+    <Version>1.14.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

@@ -25,7 +25,7 @@ Built by Jeremy S. Gaynor, K5JSG.
 
 ## Installation
 
-Download the latest installer from the [Releases](https://github.com/K5JSG/POTA-Activator-Park-Activations/releases) page and run it. The app is self-contained — no separate .NET runtime install is required. Installing a new version first removes any older copy (including very old versions from before the rename), so there's only ever one entry in Installed apps and no leftover files; your downloaded maps and settings are kept.
+Download the latest installer from the [Releases](https://github.com/K5JSG/POTA-Activator-Park-Activations/releases) page and run it. The app is self-contained — no separate .NET runtime install is required. Installing a new version upgrades the existing copy in place, so there's only ever one entry in Installed apps and your desktop shortcut stays where it is. Any other installed copy (including very old versions from before the rename) is removed first, and files the new version no longer uses are cleaned out; your downloaded maps and settings are kept.
 
 ## Building from source
 
