@@ -4,7 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
 	<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <RootNamespace>PotaActivatorParkActivations</RootNamespace>
+    <RootNamespace>PotaActivationTool</RootNamespace>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -14,7 +14,10 @@
     <Description>This program is designed to get all parks in a state with their counties, and then compare it to a adif file.  It will mark any parks already worked automatically.  You can then export your finished report as either a .csv or .xlxm file.</Description>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <ApplicationIcon>logo.ico</ApplicationIcon>
-    <Version>1.14.2</Version>
+    <Version>1.15.0</Version>
+    <!-- The installer ships only the single exe, so native libraries (the
+         WebView2 loader used by PotaLoginForm) are packed into it too. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
@@ -39,6 +42,7 @@
     <PackageReference Include="ClosedXML" Version="0.105.1" />
     <PackageReference Include="ExcelDataReader" Version="3.9.0" />
     <PackageReference Include="ExcelDataReader.DataSet" Version="3.9.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
     <PackageReference Include="System.IO.Ports" Version="10.0.12" />
   </ItemGroup>
 
@@ -67,5 +71,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!-- The WebView2 package always references its WPF control too; this is a
+       WinForms app (PotaLoginForm uses the WinForms one), and the WPF
+       assembly only causes a WindowsBase version-conflict warning. -->
+  <Target Name="RemoveWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
 
 </Project>

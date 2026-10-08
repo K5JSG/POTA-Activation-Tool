@@ -4,7 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     public partial class HelpForm : Form
     {
@@ -56,7 +56,7 @@ namespace PotaActivatorParkActivations
             {
                 // Application.StartupPath is the folder the .exe lives in, so the
                 // help file just needs to sit right alongside
-                // POTA Activator Park Activations.exe.
+                // POTA Activation Tool.exe.
                 string path = Path.Combine(Application.StartupPath, HelpFileName);
 
                 if (File.Exists(path))

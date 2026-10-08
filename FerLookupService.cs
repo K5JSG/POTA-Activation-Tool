@@ -13,7 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // Detects candidate "Xfer" groups (a "2fer", "3fer", etc.) - parks whose boundaries overlap,
     // so one activation counts for all of them at once. Unlike KFF or county
@@ -271,7 +271,7 @@ namespace PotaActivatorParkActivations
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, TreeApiUrl);
             // The GitHub API rejects requests with no User-Agent header.
-            request.Headers.UserAgent.ParseAdd("POTA-Activator-Park-Activations");
+            request.Headers.UserAgent.ParseAdd("POTA-Activation-Tool");
             request.Headers.Accept.ParseAdd("application/vnd.github+json");
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));

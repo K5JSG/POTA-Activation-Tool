@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // One SOTA (Summits on the Air) summit, as published in SOTA's own public
     // summits list (see AllSummitsUrl below). Reference is a "SummitCode" like

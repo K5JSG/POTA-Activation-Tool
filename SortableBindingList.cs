@@ -4,7 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // A regular List<T> bound to a DataGridView will throw if you click a column
     // header to sort it - plain lists don't know how to sort themselves. This

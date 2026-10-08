@@ -1,7 +1,7 @@
 using System.Net.Http;
 using System.Text;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // Per-state offline base maps for the park map - see the Offline Map
     // menu in Form1. Each state is one PMTiles vector map file (OpenStreetMap
@@ -15,7 +15,7 @@ namespace PotaActivatorParkActivations
     public static class OfflineMapService
     {
         private const string ReleaseDownloadUrl =
-            "https://github.com/K5JSG/POTA-Activator-Park-Activations/releases/download/offline-maps/";
+            "https://github.com/K5JSG/POTA-Activation-Tool/releases/download/offline-maps/";
 
         // A download that receives no data at all for this long is treated
         // as stalled and abandoned - a whole-download timeout wouldn't work,
@@ -37,7 +37,7 @@ namespace PotaActivatorParkActivations
         private static HttpClient CreateDownloadClient()
         {
             var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("POTA-Activator-Park-Activations");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("POTA-Activation-Tool");
             return client;
         }
 

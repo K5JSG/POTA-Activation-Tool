@@ -4,7 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows.Forms;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // Looks up which US county a latitude/longitude point falls in, entirely
     // offline, using county boundary shapes bundled with the app (counties.json,

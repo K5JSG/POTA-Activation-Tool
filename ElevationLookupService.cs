@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // Looks up elevation for a park by its POTA reference, using a
     // pre-generated lookup table (ParkElevations.csv) built by querying a real

@@ -1,9 +1,0 @@
-<Solution>
-  <Project Path="Installer/POTA Activator Park Activations Installer/POTA Activator Park Activations Installer.vdproj" Type="Installer">
-    <Build />
-  </Project>
-  <Project Path="POTA Activator Park Activations.csproj" />
-  <Project Path="Tools/CleanupObsoleteFiles/CleanupObsoleteFiles.csproj" />
-  <Project Path="Tools/GenerateParkElevations/GenerateParkElevations.csproj" />
-  <Project Path="Tools/RenameMsi/RenameMsi.csproj" />
-</Solution>

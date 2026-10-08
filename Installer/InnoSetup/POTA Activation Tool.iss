@@ -1,12 +1,12 @@
 ; ===================================================================
-;  POTA Activator Park Activations - installer
+;  POTA Activation Tool (PAT) - installer
 ;
 ;  Build with Inno Setup 6 or newer (run from the repo root):
-;      iscc "Installer\InnoSetup\POTA Activator Park Activations.iss"
+;      iscc "Installer\InnoSetup\POTA Activation Tool.iss"
 ;
 ;  Expects the published self-contained single-file exe and its loose
 ;  data files at:
-;      publish\POTA Activator Park Activations.exe
+;      publish\POTA Activation Tool.exe
 ;      publish\counties.json
 ;      publish\HelpContent.rtf
 ;      publish\ParkElevations.csv
@@ -15,10 +15,12 @@
 ;  (build.ps1, at the repo root, puts them there)
 ; ===================================================================
 
-#define MyAppName "POTA Activator Park Activations"
+#define MyAppName "POTA Activation Tool"
 #define MyAppPublisher "K5JSG"
-#define MyAppURL "https://github.com/K5JSG/POTA-Activator-Park-Activations"
-#define MyAppExeName "POTA Activator Park Activations.exe"
+#define MyAppURL "https://github.com/K5JSG/POTA-Activation-Tool"
+#define MyAppExeName "POTA Activation Tool.exe"
+; The product's name from 1.4.0 until the rename in 1.15.0 - see [Code].
+#define OldAppName "POTA Activator Park Activations"
 ; This installer's AppId (see [Setup]), also used by [Code] to tell its own
 ; Installed Apps entry apart from older copies.
 #define MyAppId "{{62A39724-A285-4A61-A519-B6C98BA075B2}"
@@ -48,6 +50,10 @@ VersionInfoVersion={#MyAppVersion}
 DefaultDirName={autopf}\{#MyAppPublisher}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+; Never offered to the user (no group page), so always use the current
+; name - otherwise an upgrade from before the rename would keep the Start
+; menu folder under the old name.
+UsePreviousGroup=no
 DisableDirPage=no
 AllowNoIcons=yes
 LicenseFile=..\..\License.txt
@@ -104,6 +110,14 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName} now"; \
     Flags: postinstall nowait skipifsilent
 
+[UninstallDelete]
+; The desktop shortcut isn't always in this install's uninstall log: an
+; upgrade with the desktop icon task off (Ham Program Auto Update installs
+; with /MERGETASKS=!desktopicon) keeps the existing shortcut instead of
+; making it, and one renamed from the old product name (see
+; RenameFromOldName) never was. Removed by name on uninstall either way.
+Type: files; Name: "{autodesktop}\{#MyAppName}.lnk"
+
 [Code]
 
 // Updates install IN PLACE over the existing copy (same AppId), so Installed
@@ -116,6 +130,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName} now"; \
 //     stray entry registered somewhere other than this installer's own;
 //   - the program folder is emptied (all but the uninstaller), so no file
 //     that an older version shipped and this one dropped is left behind.
+// An upgrade from before the rename (when this was "POTA Activator Park
+// Activations") also moves the program folder, desktop shortcut and Start
+// menu folder to the new name - see RenameFromOldName.
 // User data lives in %LocalAppData% (see GetWritableAppDataFolder in
 // Form1.cs) and is never touched, so caches and offline maps survive.
 
@@ -124,10 +141,14 @@ const
   LegacyAppName = 'POTA Check';
 var
   OldInstallDirs: TArrayOfString;
+  // The previous install's folder when it was still named after the old
+  // product name - removed once the new folder is installed.
+  RenamedFromDir: String;
 
 function IsOurProductName(const Name: String): Boolean;
 begin
   Result := (CompareText(Name, '{#MyAppName}') = 0) or
+            (CompareText(Name, '{#OldAppName}') = 0) or
             (CompareText(Name, LegacyAppName) = 0);
 end;
 
@@ -314,10 +335,94 @@ begin
   end;
 end;
 
+// ---- Upgrading from before the rename. The AppId is the same, so it's an
+// in-place upgrade of the same Installed Apps entry, but Inno would reuse
+// the old program folder and shortcuts are named after the product.
+
+// Runs for silent installs too (the wizard exists, just isn't shown).
+// Inno has already filled in the previous install's folder; if that folder
+// is the old product name, install next to it under the new name instead.
+// A folder the user picked themselves (any other name) is left alone.
+procedure InitializeWizard();
+var
+  Dir: String;
+begin
+  RenamedFromDir := '';
+  Dir := RemoveBackslashUnlessRoot(WizardForm.DirEdit.Text);
+  if CompareText(ExtractFileName(Dir), '{#OldAppName}') = 0 then
+  begin
+    RenamedFromDir := Dir;
+    WizardForm.DirEdit.Text := AddBackslash(ExtractFileDir(Dir)) + '{#MyAppName}';
+  end;
+end;
+
+// The desktop shortcut is renamed in place rather than deleted and made
+// again under the new name, so Explorer keeps it where the user put it
+// (a new file name would land in the next free spot). Its target still
+// points into the old program folder, which is deleted after the install,
+// so RetargetDesktopShortcut points it at the new exe afterwards - Inno
+// itself doesn't rewrite it when the desktop icon task is off (Ham Program
+// Auto Update's silent upgrades).
+procedure RenameDesktopShortcut(const Desktop: String);
+var
+  OldLink, NewLink: String;
+begin
+  OldLink := AddBackslash(Desktop) + '{#OldAppName}.lnk';
+  NewLink := AddBackslash(Desktop) + '{#MyAppName}.lnk';
+  if FileExists(OldLink) and not FileExists(NewLink) then
+    RenameFile(OldLink, NewLink);
+end;
+
+// Points a desktop shortcut that still targets the old exe at the new one,
+// editing the existing .lnk (only its target, working folder and icon) so
+// it keeps its place on the desktop. Best effort - a failure here just
+// leaves a shortcut the user can delete.
+procedure RetargetDesktopShortcut(const Desktop: String);
+var
+  Link: String;
+  Shell, Shortcut: Variant;
+begin
+  Link := AddBackslash(Desktop) + '{#MyAppName}.lnk';
+  if not FileExists(Link) then Exit;
+  try
+    Shell := CreateOleObject('WScript.Shell');
+    Shortcut := Shell.CreateShortcut(Link);
+    if CompareText(ExtractFileName(Shortcut.TargetPath), '{#OldAppName}.exe') <> 0 then Exit;
+    Shortcut.TargetPath := ExpandConstant('{app}\{#MyAppExeName}');
+    Shortcut.WorkingDirectory := ExpandConstant('{app}');
+    Shortcut.IconLocation := ExpandConstant('{app}\{#MyAppExeName}') + ',0';
+    Shortcut.Save;
+  except
+  end;
+end;
+
+procedure RenameFromOldName();
+begin
+  RenameDesktopShortcut(ExpandConstant('{commondesktop}'));
+  RenameDesktopShortcut(ExpandConstant('{userdesktop}'));
+end;
+
+// After the new files are in: the old program folder, and the old Start
+// menu folder (its shortcuts point at the old folder's exe).
+procedure RemoveOldNameLeftovers();
+begin
+  RetargetDesktopShortcut(ExpandConstant('{commondesktop}'));
+  RetargetDesktopShortcut(ExpandConstant('{userdesktop}'));
+  if (RenamedFromDir <> '') and not SameDir(RenamedFromDir, ExpandConstant('{app}')) then
+    DeleteAppFolder(RenamedFromDir);
+  DelTree(ExpandConstant('{commonprograms}\{#OldAppName}'), True, True, True);
+  DelTree(ExpandConstant('{userprograms}\{#OldAppName}'), True, True, True);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
+  begin
+    RenameFromOldName();
     CleanAppFolder();
+  end
+  else if CurStep = ssPostInstall then
+    RemoveOldNameLeftovers();
 end;
 
 // Stop a running instance before installing or uninstalling, otherwise the
@@ -336,6 +441,9 @@ var
   ResultCode: Integer;
 begin
   StopRunningApp();
+  Exec(ExpandConstant('{cmd}'),
+       '/C taskkill /F /IM "{#OldAppName}.exe" >nul 2>&1',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{cmd}'),
        '/C taskkill /F /IM "' + LegacyAppName + '.exe" >nul 2>&1',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

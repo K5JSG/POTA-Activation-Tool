@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // The program's logo (source artwork: Logo.png in the project folder),
     // built into the exe: the multi-size logo.ico for every window's title

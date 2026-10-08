@@ -1,4 +1,4 @@
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     partial class HelpForm
     {
@@ -27,7 +27,7 @@ namespace PotaActivatorParkActivations
             this.labelTitle.Location = new System.Drawing.Point(20, 20);
             this.labelTitle.Name = "labelTitle";
             this.labelTitle.Size = new System.Drawing.Size(340, 27);
-            this.labelTitle.Text = "POTA Activator Park Activations Help";
+            this.labelTitle.Text = "POTA Activation Tool Help";
             //
             // textBoxHelp
             //
@@ -64,7 +64,7 @@ namespace PotaActivatorParkActivations
             this.MinimumSize = new System.Drawing.Size(420, 320);
             this.Name = "HelpForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "POTA Activator Park Activations Help";
+            this.Text = "POTA Activation Tool Help";
             this.ResumeLayout(false);
             this.PerformLayout();
         }

@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     public partial class Form1 : Form
     {
@@ -36,14 +36,6 @@ namespace PotaActivatorParkActivations
         // the map must filter by whatever state was actually loaded, not
         // whatever the dropdown currently shows.
         private string _loadedStateCode = "";
-
-        // The HTML from the most recent buttonShowMap_Click, kept so
-        // SaveMapCopy can write out a copy without re-fetching activation
-        // info. Cleared (and the Save Map checkbox disabled - see
-        // UpdateMapOptionControls) whenever _adifLoaded resets to false, since
-        // that's exactly when the underlying data a map would show goes
-        // stale.
-        private string? _lastMapHtml;
 
         // True while SetBusy has the form's actions locked (e.g. loading
         // parks) - see UpdateMapOptionControls.
@@ -125,12 +117,42 @@ namespace PotaActivatorParkActivations
         // POTA park list) lives in %LocalAppData% instead, which is always
         // writable by whoever's running the app. This folder is created
         // automatically the first time it's needed.
+        //
+        // Before the rename to POTA Activation Tool (1.15.0) this folder was
+        // "POTA Activator Park Activations". The first run after the update
+        // moves it over - a rename on the same drive, so even gigabytes of
+        // offline maps move instantly and nothing is downloaded again. If the
+        // move fails (say the old version is still running and has a file
+        // open), this run keeps using the old folder and the next one tries
+        // again.
+        private const string AppDataFolderName = "POTA Activation Tool";
+        private const string OldAppDataFolderName = "POTA Activator Park Activations";
+        private static string? _appDataFolder;
+
         private static string GetWritableAppDataFolder()
         {
-            string folder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "POTA Activator Park Activations");
+            if (_appDataFolder != null)
+            {
+                Directory.CreateDirectory(_appDataFolder);
+                return _appDataFolder;
+            }
+
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string folder = Path.Combine(localAppData, AppDataFolderName);
+            string oldFolder = Path.Combine(localAppData, OldAppDataFolderName);
+            if (!Directory.Exists(folder) && Directory.Exists(oldFolder))
+            {
+                try
+                {
+                    Directory.Move(oldFolder, folder);
+                }
+                catch
+                {
+                    folder = oldFolder;
+                }
+            }
             Directory.CreateDirectory(folder);
+            _appDataFolder = folder;
             return folder;
         }
 
@@ -143,7 +165,7 @@ namespace PotaActivatorParkActivations
         // CleanUpTempFiles() below.
         private static string GetAppTempFolder()
         {
-            string folder = Path.Combine(Path.GetTempPath(), "POTA Activator Park Activations");
+            string folder = Path.Combine(Path.GetTempPath(), "POTA Activation Tool");
             Directory.CreateDirectory(folder);
             return folder;
         }
@@ -280,6 +302,7 @@ namespace PotaActivatorParkActivations
             Icon = AppLogo.Icon ?? Icon;
             pictureBoxLogo.Image = AppLogo.Image;
             ConfigureHttpClient();
+            AddPotaLoginMenu();
 
             // Sourced from Application.ProductVersion (the assembly's
             // informational version, driven by the .csproj's own <Version> -
@@ -295,7 +318,7 @@ namespace PotaActivatorParkActivations
         private void ConfigureHttpClient()
         {
             _http.DefaultRequestHeaders.UserAgent.ParseAdd(
-                $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) POTAActivatorParkActivations/{Application.ProductVersion}");
+                $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) POTAActivationTool/{Application.ProductVersion}");
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -425,13 +448,12 @@ namespace PotaActivatorParkActivations
             textBoxWwffDate.Top = 70 + extra;
             labelSearch.Top = 75 + extra;
             textBoxSearch.Top = 72 + extra;
-            checkBoxSaveMap.Top = 74 + extra;
             checkBoxOfflineMap.Top = 74 + extra;
             buttonMapOk.Top = 71 + extra;
             labelGps.Top = 75 + extra;
             comboBoxGps.Top = 71 + extra;
             progressBar1.Top = 105 + extra;
-            dataGridView1.Top = 150 + extra;
+            dataGridView1.Top = 178 + extra;
         }
 
         // DataGridView's column/row headers don't automatically follow the
@@ -678,7 +700,6 @@ namespace PotaActivatorParkActivations
         {
             _parksLoaded = false;
             _adifLoaded = false;
-            _lastMapHtml = null;
             UpdateButtonStates();
         }
 
@@ -715,7 +736,8 @@ namespace PotaActivatorParkActivations
             listener.Start();
             _mapHttpListener = listener;
 
-            Task.Run(() => MapServer.Run(listener, html, GetGpsStatusJson, GetOfflineMapInfo));
+            string appData = GetWritableAppDataFolder();
+            Task.Run(() => MapServer.Run(listener, html, GetGpsStatusJson, GetOfflineMapInfo, appData));
 
             // A trailing query string that changes every call, appended only
             // to the URL handed to the browser (the listener prefix above
@@ -759,9 +781,10 @@ namespace PotaActivatorParkActivations
         private static string StateName(string code) =>
             PotaService.UsStates.FirstOrDefault(st => st.Code == code)?.Name ?? code;
 
-        // ---- Save Map / Offline Map checkboxes + OK (the row under Load ADIF
-        // File). Check either or both, then OK does each checked one. While an
-        // offline map download is running, OK becomes Cancel for it.
+        // ---- Offline Map checkbox + OK (the row under Load ADIF File): check
+        // it, then OK downloads the state's offline map. While a download is
+        // running, OK becomes Cancel for it. Saving a copy of the map itself
+        // is in the map's Layers panel (MapServer's /save-map).
 
         private void MapOptionCheckBox_CheckedChanged(object? sender, EventArgs e) => UpdateMapOptionControls();
 
@@ -770,20 +793,14 @@ namespace PotaActivatorParkActivations
             bool downloading = _offlineMapDownloadCts != null;
             string state = comboBoxState.SelectedValue?.ToString() ?? "";
 
-            // Save Map needs a map shown this session (same as the old Save
-            // Map button); Offline Map needs a state picked in the dropdown -
-            // parks don't have to be loaded yet, so a map can be downloaded
-            // at home before heading out.
-            checkBoxSaveMap.Enabled = _lastMapHtml != null && !_busy;
-            if (!checkBoxSaveMap.Enabled) checkBoxSaveMap.Checked = false;
+            // Offline Map needs a state picked in the dropdown - parks don't
+            // have to be loaded yet, so a map can be downloaded at home before
+            // heading out.
             checkBoxOfflineMap.Enabled = state.Length > 0 && !downloading;
 
             buttonMapOk.Text = downloading ? "Cancel" : "OK";
-            buttonMapOk.Enabled = downloading || checkBoxSaveMap.Checked || (checkBoxOfflineMap.Checked && checkBoxOfflineMap.Enabled);
+            buttonMapOk.Enabled = downloading || (checkBoxOfflineMap.Checked && checkBoxOfflineMap.Enabled);
 
-            _mapOptionsToolTip.SetToolTip(checkBoxSaveMap, _lastMapHtml != null
-                ? "Save a copy of the map you last opened to an .html file"
-                : "Click Show Map first, then you can save a copy of it");
             string offlineTip;
             if (downloading)
                 offlineTip = $"Downloading the offline map for {StateName(_offlineMapDownloadState)} - click Cancel to stop";
@@ -806,9 +823,6 @@ namespace PotaActivatorParkActivations
                 _offlineMapDownloadCts.Cancel();
                 return;
             }
-
-            if (checkBoxSaveMap.Checked && SaveMapCopy())
-                checkBoxSaveMap.Checked = false;
 
             string state = comboBoxState.SelectedValue?.ToString() ?? "";
             if (checkBoxOfflineMap.Checked && state.Length > 0)
@@ -1053,14 +1067,17 @@ namespace PotaActivatorParkActivations
 
             buttonExportCsv.Enabled = _adifLoaded;
             buttonExportExcel.Enabled = _adifLoaded;
-            buttonShowMap.Enabled = _adifLoaded;
+            // The map works without an ADIF too (every park just shows as not
+            // yet activated), e.g. to plan a rove - but it's only highlighted
+            // as the next step once the ADIF is in.
+            buttonShowMap.Enabled = _parksLoaded;
             SetButtonHighlight(buttonExportCsv, _adifLoaded);
             SetButtonHighlight(buttonExportExcel, _adifLoaded);
             SetButtonHighlight(buttonShowMap, _adifLoaded);
 
-            // Not part of the highlighted "next step" chain above - Save Map
-            // and Offline Map are optional, not something the workflow pushes
-            // the user toward.
+            // Not part of the highlighted "next step" chain above - Offline
+            // Map is optional, not something the workflow pushes the user
+            // toward.
             UpdateMapOptionControls();
         }
 
@@ -1504,7 +1521,6 @@ namespace PotaActivatorParkActivations
                 _loadedStateCode = stateCode;
                 SaveLastLoadedState(stateCode);
                 _adifLoaded = false;
-                _lastMapHtml = null;
 
                 // The Xfer's column is a candidate list derived from real boundary
                 // and trail-route data matched to parks by name, not authoritative
@@ -1659,11 +1675,6 @@ namespace PotaActivatorParkActivations
                 MessageBox.Show("Load the park list for a state first.");
                 return;
             }
-            if (_myActivations.Count == 0)
-            {
-                MessageBox.Show("Load your ADIF file first, so the map can show which parks you've activated.");
-                return;
-            }
 
             SetBusy(true);
             try
@@ -1722,7 +1733,6 @@ namespace PotaActivatorParkActivations
                 }).ToList();
 
                 string html = MapService.BuildMapHtml(mapParks, BuildBoundaryLayerDtos(), mapSotaSummits);
-                _lastMapHtml = html;
 
                 string url = StartMapServer(html);
                 var psi = new ProcessStartInfo
@@ -1735,12 +1745,16 @@ namespace PotaActivatorParkActivations
                 // With no connection, the map shows the activation history
                 // saved from the last time it could be looked up - say so
                 // (and how old it is) rather than letting it pass as current.
+                string status;
                 if (activationResult.FailedCount == 0)
-                    textBoxStatus.Text = "Map opened in your default browser.";
+                    status = "Map opened in your default browser.";
                 else if (activationResult.OldestStaleUtc is DateTime staleUtc)
-                    textBoxStatus.Text = $"Map opened in your default browser. Couldn't reach POTA - showing saved activation history (oldest from {staleUtc.ToLocalTime():d MMM yyyy}).";
+                    status = $"Map opened in your default browser. Couldn't reach POTA - showing saved activation history (oldest from {staleUtc.ToLocalTime():d MMM yyyy}).";
                 else
-                    textBoxStatus.Text = "Map opened in your default browser. Couldn't reach POTA - no saved activation history yet; Show Map once with a connection to save it.";
+                    status = "Map opened in your default browser. Couldn't reach POTA - no saved activation history yet; Show Map once with a connection to save it.";
+                if (!_adifLoaded)
+                    status += " No ADIF loaded, so no parks are marked as activated by you.";
+                textBoxStatus.Text = status;
             }
             catch (Exception ex)
             {
@@ -1931,37 +1945,6 @@ namespace PotaActivatorParkActivations
             return points;
         }
 
-        // Writes out a permanent copy of the map buttonShowMap_Click last
-        // opened (the Save Map checkbox + OK) - the browser was only ever
-        // served it by the app's local map server, which stops when the
-        // program closes. Returns whether a file was actually saved.
-        private bool SaveMapCopy()
-        {
-            if (_lastMapHtml == null)
-            {
-                MessageBox.Show("Show the map first, then you can save a copy of it.");
-                return false;
-            }
-            string stateCode = comboBoxState.SelectedValue?.ToString() ?? "Parks";
-            using var dlg = new SaveFileDialog
-            {
-                Filter = "HTML files (*.html)|*.html",
-                FileName = $"POTA_{stateCode}_Map.html"
-            };
-            if (dlg.ShowDialog() != DialogResult.OK) return false;
-            try
-            {
-                File.WriteAllText(dlg.FileName, MapService.ToStandaloneHtml(_lastMapHtml), Encoding.UTF8);
-                MessageBox.Show("Map file saved successfully.");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error saving map: " + ex.Message);
-                return false;
-            }
-        }
-
         private void buttonExportCsv_Click(object sender, EventArgs e)
         {
             if (_parks.Count == 0)
@@ -2022,6 +2005,54 @@ namespace PotaActivatorParkActivations
         {
             using var help = new HelpForm();
             help.ShowDialog(this);
+        }
+
+        // ---- POTA Login (menu bar): signs in to pota.app so the map's rove
+        // planner can load the rove plans saved there - see
+        // PotaAccountService. Signed out it's "POTA Login" and a click opens
+        // the sign-in window; signed in it shows the callsign, with Sign Out
+        // under it.
+        private readonly ToolStripMenuItem _potaLoginMenuItem = new();
+
+        private void AddPotaLoginMenu()
+        {
+            var signOut = new ToolStripMenuItem("Sign Out");
+            signOut.Click += (s, e) =>
+            {
+                PotaAccountService.SignOut(GetWritableAppDataFolder());
+                UpdatePotaLoginMenu();
+                textBoxStatus.Text = "Signed out of POTA.";
+            };
+            _potaLoginMenuItem.DropDownItems.Add(signOut);
+            _potaLoginMenuItem.Click += (s, e) =>
+            {
+                if (PotaAccountService.IsSignedIn(GetWritableAppDataFolder())) return; // the Sign Out dropdown opens instead
+                using var login = new PotaLoginForm(GetWritableAppDataFolder());
+                if (login.ShowDialog(this) == DialogResult.OK)
+                {
+                    string callsign = PotaAccountService.Callsign(GetWritableAppDataFolder());
+                    textBoxStatus.Text = "Signed in to POTA" + (callsign.Length > 0 ? " as " + callsign : "") +
+                        ". The map's Rove Planner can now load your pota.app rove plans.";
+                }
+                UpdatePotaLoginMenu();
+            };
+            menuStrip1.Items.Insert(0, _potaLoginMenuItem);
+            UpdatePotaLoginMenu();
+        }
+
+        private void UpdatePotaLoginMenu()
+        {
+            string appData = GetWritableAppDataFolder();
+            bool signedIn = PotaAccountService.IsSignedIn(appData);
+            string callsign = PotaAccountService.Callsign(appData);
+            _potaLoginMenuItem.Text = signedIn ? "POTA: " + (callsign.Length > 0 ? callsign : "signed in") : "POTA Login";
+            _potaLoginMenuItem.ToolTipText = signedIn
+                ? "Signed in to pota.app - the map's Rove Planner can load your pota.app rove plans"
+                : "Sign in to pota.app so the map's Rove Planner can load your pota.app rove plans";
+            // Only signed in has a dropdown (Sign Out); signed out, a click
+            // goes straight to the sign-in window.
+            _potaLoginMenuItem.DropDownItems[0].Visible = signedIn;
+            _potaLoginMenuItem.DropDown.Enabled = signedIn;
         }
 
         private void BindGrid()

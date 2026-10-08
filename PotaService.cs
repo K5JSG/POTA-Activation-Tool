@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     public class RawPark
     {

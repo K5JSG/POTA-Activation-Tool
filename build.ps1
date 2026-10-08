@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds POTA Activator Park Activations.
+    Builds POTA Activation Tool.
 
 .DESCRIPTION
     Publishes a self-contained, single-file exe (no .NET runtime needed on
@@ -25,12 +25,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$project = Join-Path $root "POTA Activator Park Activations.csproj"
+$project = Join-Path $root "POTA Activation Tool.csproj"
 $publishDir = Join-Path $root "publish"
 $distDir = Join-Path $root "dist"
 
 Write-Host ""
-Write-Host "POTA Activator Park Activations - build v$Version" -ForegroundColor Cyan
+Write-Host "POTA Activation Tool - build v$Version" -ForegroundColor Cyan
 Write-Host ("=" * 55)
 
 # --- 1. Publish --------------------------------------------------------
@@ -53,7 +53,7 @@ dotnet publish $project `
 
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
 
-$exe = Join-Path $publishDir "POTA Activator Park Activations.exe"
+$exe = Join-Path $publishDir "POTA Activation Tool.exe"
 if (-not (Test-Path $exe)) { throw "Published exe not found at $exe" }
 
 $sizeMb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
@@ -79,7 +79,7 @@ if (-not $iscc) {
     Write-Host ""
     Write-Host "Inno Setup was not found, so no installer was built." -ForegroundColor Yellow
     Write-Host "Install it from https://jrsoftware.org/isdl.php and run this again," -ForegroundColor Yellow
-    Write-Host "or just distribute publish\POTA Activator Park Activations.exe on its own." -ForegroundColor Yellow
+    Write-Host "or just distribute publish\POTA Activation Tool.exe on its own." -ForegroundColor Yellow
     exit 0
 }
 
@@ -88,10 +88,10 @@ New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 Write-Host ""
 Write-Host "Building installer..." -ForegroundColor Yellow
 
-& $iscc "/DMyAppVersion=$Version" (Join-Path $root "Installer\InnoSetup\POTA Activator Park Activations.iss")
+& $iscc "/DMyAppVersion=$Version" (Join-Path $root "Installer\InnoSetup\POTA Activation Tool.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed." }
 
-$setup = Join-Path $distDir "POTA Activator Park Activations Setup $Version.exe"
+$setup = Join-Path $distDir "POTA Activation Tool Setup $Version.exe"
 if (Test-Path $setup) {
     $setupMb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
     Write-Host ""

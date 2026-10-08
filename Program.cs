@@ -1,4 +1,4 @@
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     internal static class Program
     {

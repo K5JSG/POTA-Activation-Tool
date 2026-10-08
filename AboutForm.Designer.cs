@@ -1,4 +1,4 @@
-﻿namespace PotaActivatorParkActivations
+﻿namespace PotaActivationTool
 {
     partial class AboutForm
     {
@@ -29,7 +29,7 @@
             this.labelAppName.Location = new System.Drawing.Point(20, 20);
             this.labelAppName.Name = "labelAppName";
             this.labelAppName.Size = new System.Drawing.Size(340, 27);
-            this.labelAppName.Text = "POTA Activator Park Activations";
+            this.labelAppName.Text = "POTA Activation Tool";
             //
             // textBoxVersion
             //
@@ -96,7 +96,7 @@
             this.MinimizeBox = false;
             this.Name = "AboutForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "About POTA Activator Park Activations";
+            this.Text = "About POTA Activation Tool";
             this.ResumeLayout(false);
             this.PerformLayout();
         }

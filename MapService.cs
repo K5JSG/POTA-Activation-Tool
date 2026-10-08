@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows.Forms;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // One park's worth of information, packaged up exactly the way the map page needs it.
     // The [JsonPropertyName] attributes control what the field is called in the JSON/JavaScript
@@ -183,6 +183,8 @@ namespace PotaActivatorParkActivations
                 .Replace("__LEAFLET_JS__", MapServer.AssetPrefix + "leaflet/leaflet.js")
                 .Replace("__PROTOMAPS_JS__", MapServer.AssetPrefix + "protomaps-leaflet/protomaps-leaflet.js")
                 .Replace("__OSM_STYLE__", MapServer.ReadAssetText("osm-style.js").Replace("</", "<\\/"))
+                .Replace("__ROVE_JS__", MapServer.ReadAssetText("rove.js").Replace("</", "<\\/"))
+                .Replace("__DIRECT_GPS_JS__", MapServer.ReadAssetText("direct-gps.js").Replace("</", "<\\/"))
                 .Replace("__PARK_DATA__", parkJson)
                 .Replace("__BOUNDARY_DATA__", boundaryJson)
                 .Replace("__SOTA_DATA__", sotaJson)
@@ -197,11 +199,26 @@ namespace PotaActivatorParkActivations
         // behind it, so it points back at the same library versions on their
         // public CDNs instead - it needs a connection for the map tiles
         // anyway, exactly as saved maps always have.
-        public static string ToStandaloneHtml(string servedHtml) =>
+        //
+        // Its Street layer is Esri's World Street Map instead of
+        // OpenStreetMap's tiles: OSM's servers block tile requests that
+        // don't say which website they're for (its tile usage policy), and a
+        // page opened from a file can't send that, so a saved copy showed
+        // "Access blocked" on every tile (seen 2026-10-08). Esri's servers -
+        // the same free, no-account service as the Satellite layer - don't
+        // ask. The live map, served from http://127.0.0.1, keeps OSM.
+        private const string OsmStreetTiles = "'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'";
+        private const string OsmStreetAttribution = "attribution: '&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors'";
+
+        public static string ToStandaloneHtml(string servedHtml, string? roveEmbedJson = null, string? gpsEmbedJson = null) =>
             servedHtml
+                .Replace("var embeddedGps = null;", "var embeddedGps = " + (gpsEmbedJson ?? "null").Replace("</", "<\\/") + ";")
+                .Replace("var embeddedRove = null;", "var embeddedRove = " + (roveEmbedJson ?? "null").Replace("</", "<\\/") + ";")
                 .Replace(MapServer.AssetPrefix + "leaflet/leaflet.css", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css")
                 .Replace(MapServer.AssetPrefix + "leaflet/leaflet.js", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js")
-                .Replace(MapServer.AssetPrefix + "protomaps-leaflet/protomaps-leaflet.js", "https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js");
+                .Replace(MapServer.AssetPrefix + "protomaps-leaflet/protomaps-leaflet.js", "https://unpkg.com/protomaps-leaflet@5.1.0/dist/protomaps-leaflet.js")
+                .Replace(OsmStreetTiles, "'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'")
+                .Replace(OsmStreetAttribution, "attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, USGS, NGA, EPA, USDA, NPS'");
 
         // CQ/ITU zone boundary polygons (cqZones.json/ituZones.json, shipped next
         // to the .exe like counties.json) - simplified from HB9HIL's MIT-licensed
@@ -234,7 +251,7 @@ namespace PotaActivatorParkActivations
 <html lang=""en"">
 <head>
 <meta charset=""utf-8"" />
-<title>POTA Activator Park Activations - Park Map</title>
+<title>POTA Activation Tool - Park Map</title>
 <link rel=""icon"" type=""image/png"" href=""__FAVICON__"" />
 <meta name=""viewport"" content=""width=device-width, initial-scale=1"" />
 <link rel=""stylesheet"" href=""__LEAFLET_CSS__"" />
@@ -338,9 +355,69 @@ namespace PotaActivatorParkActivations
   .measure-panel[hidden] { display: none; }
   .measure-panel button { background: none; border: none; font-size: 14px; cursor: pointer; color: inherit; padding: 0; }
   #map.measuring-cursor { cursor: crosshair; }
+  .direct-gps-button {
+    position: absolute; bottom: 64px; left: 12px; z-index: 1000;
+    background: white; border: none; border-radius: 6px; padding: 7px 12px;
+    font: bold 12px Segoe UI, Arial, sans-serif; cursor: pointer;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+  }
+  .direct-gps-button[hidden] { display: none; }
+  .rove-toggle {
+    position: absolute; top: 12px; right: 12px; z-index: 1001;
+    background: white; border: none; border-radius: 4px;
+    padding: 7px 12px; font-size: 13px; font-weight: bold; cursor: pointer;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4); font-family: inherit;
+  }
+  .rove-panel {
+    position: absolute; top: 12px; right: 12px; bottom: 130px; z-index: 1000;
+    width: 300px; max-width: calc(100vw - 24px);
+    background: white; border-radius: 6px; box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    overflow-y: auto; overflow-x: hidden; font-size: 13px;
+  }
+  .rove-panel[hidden], .rove-toggle[hidden] { display: none; }
+  .rove-panel button, .rove-panel select, .rove-panel input[type=text] { font-family: inherit; font-size: 12px; }
+  .rove-line { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; align-items: center; }
+  .rove-line > select, .rove-line > input[type=text] { flex: 1 1 auto; min-width: 0; padding: 3px 4px; }
+  .rove-line > button { flex: 0 0 auto; padding: 3px 8px; cursor: pointer; }
+  .rove-line > button.rove-danger { color: #b3261e; }
+  .rove-results { margin: 2px 0 4px 0; }
+  .rove-results div { padding: 3px 4px; cursor: pointer; border-radius: 3px; }
+  .rove-results div:hover { background: rgba(0,0,0,0.07); }
+  .rove-summary { font-weight: bold; margin-bottom: 4px; }
+  .rove-stops { list-style: none; margin: 0; padding: 0; }
+  .rove-stop { display: flex; align-items: center; gap: 6px; padding: 4px 2px; cursor: grab; border-top: 2px solid transparent; }
+  .rove-stop.drop-before { border-top-color: #1a73e8; }
+  .rove-stop .rove-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .rove-stop .rove-name b { font-family: Consolas, monospace; font-weight: bold; }
+  .rove-stop button { background: none; border: none; cursor: pointer; color: #b3261e; font-size: 13px; padding: 0 2px; }
+  .rove-num {
+    flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; background: #00796b; color: white;
+    font-size: 11px; font-weight: bold; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .rove-leg { margin: 0 0 2px 26px; font-size: 11px; opacity: 0.75; cursor: pointer; }
+  .rove-leg:hover { opacity: 1; text-decoration: underline; }
+  .rove-steps { margin: 2px 0 6px 26px; padding-left: 16px; font-size: 11px; }
+  .rove-steps li { margin: 1px 0; }
+  .rove-steps span { opacity: 0.6; }
+  .rove-stop-icon div {
+    width: 22px; height: 22px; border-radius: 50%; background: #00796b; color: white; border: 2px solid white;
+    box-shadow: 0 0 3px rgba(0,0,0,0.7); font: bold 12px Segoe UI, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+  }
+  .rove-popup-btn { margin-top: 8px; padding: 3px 10px; cursor: pointer; font-family: inherit; }
+  .rove-stop-place div { background: #5c6bc0; cursor: move; }
+  .rove-route-line { cursor: grab; }
+  .save-map-link { display: inline-block; padding: 3px 0; color: #1a5fb4; font-weight: bold; text-decoration: none; }
+  .save-map-link:hover { text-decoration: underline; }
+  @media (prefers-color-scheme: dark) {
+    .rove-toggle, .rove-panel { background: #2d2d30; color: #e8e8e8; box-shadow: 0 1px 5px rgba(0,0,0,0.6); }
+    .rove-results div:hover { background: rgba(255,255,255,0.1); }
+    .rove-stop button, .rove-line > button.rove-danger { color: #ff8a80; }
+  }
   @media (prefers-color-scheme: dark) {
     body { background: #1e1e1e; }
     .gps-status { background: #2d2d30; color: #e8e8e8; box-shadow: 0 1px 5px rgba(0,0,0,0.6); }
+    .direct-gps-button { background: #2d2d30; color: #e8e8e8; box-shadow: 0 1px 5px rgba(0,0,0,0.6); }
     .coord-box { background: #2d2d30; color: #e8e8e8; box-shadow: 0 1px 5px rgba(0,0,0,0.6); }
     .info-bar { background: #2d2d30; color: #e8e8e8; box-shadow: 0 1px 5px rgba(0,0,0,0.6); }
     .info-bar.info-bar-active { background: #2e8b22; color: white; }
@@ -378,6 +455,48 @@ namespace PotaActivatorParkActivations
 </div>
 <div class=""context-menu"" id=""mapContextMenu"" hidden></div>
 
+<button id=""roveToggle"" class=""rove-toggle"" title=""Plan a rove: pick parks, get a driving route"">Rove Planner</button>
+<div id=""rovePanel"" class=""rove-panel"" hidden>
+  <div class=""sidebar-header"">
+    <span>Rove Planner</span>
+    <button id=""roveClose"" title=""Hide the rove planner"">✕</button>
+  </div>
+  <div class=""sidebar-section"">
+    <div class=""sidebar-heading"">Plan</div>
+    <div class=""rove-line""><select id=""rovePlanSelect"" title=""Pick a saved plan to load it""></select></div>
+    <div class=""rove-line""><input type=""text"" id=""rovePlanName"" placeholder=""Plan name"" title=""Rename this plan"" /></div>
+    <div class=""rove-line"">
+      <button id=""roveNew"" title=""Start a new, empty plan"">New</button>
+      <button id=""roveDelete"" class=""rove-danger"" title=""Delete this plan"">Delete</button>
+    </div>
+    <div class=""rove-line"">
+      <button id=""rovePotaLoad"" title=""List the rove plans saved on your pota.app account (POTA Login in the app's menu bar)"">From pota.app</button>
+      <select id=""rovePotaSelect"" hidden title=""Pick a pota.app rove plan to load it""></select>
+    </div>
+    <div class=""sidebar-note"" id=""roveNote"" hidden></div>
+  </div>
+  <div class=""sidebar-section"">
+    <div class=""sidebar-heading"">Add Stops</div>
+    <div class=""rove-line"">
+      <input type=""text"" id=""roveAddInput"" placeholder=""US-1234, park name or address"" />
+      <button id=""roveAddBtn"">Add</button>
+    </div>
+    <div class=""rove-results"" id=""roveAddResults""></div>
+    <div class=""sidebar-note"">Or click a park on the map and use its Add to Rove button, or drag the route line to add a stop there. Blue stops (addresses) can be dragged to move them.</div>
+  </div>
+  <div class=""sidebar-section"">
+    <div class=""sidebar-heading"">Route</div>
+    <label class=""sidebar-row""><input type=""checkbox"" id=""roveStartGps"" /> Start from my location</label>
+    <div class=""rove-line"">
+      <button id=""roveOrder"" title=""Reorder the stops into the shortest trip"">Order by Distance</button>
+      <button id=""roveClear"" class=""rove-danger"" title=""Remove every stop from this plan"">Remove All</button>
+      <button id=""rovePrint"" title=""Open the turn-by-turn directions as a printable page - choose Save as PDF in the print window for a PDF"">Print Directions</button>
+    </div>
+    <div class=""rove-summary"" id=""roveSummary""></div>
+    <ol class=""rove-stops"" id=""roveStops""></ol>
+  </div>
+</div>
+
 <button id=""sidebarToggle"" class=""sidebar-toggle"" title=""Show/hide layers panel"">☰</button>
 <div id=""sidebar"" class=""sidebar"">
   <div class=""sidebar-header"">
@@ -399,6 +518,11 @@ namespace PotaActivatorParkActivations
     <div class=""sidebar-note"" id=""zoomInNote"" hidden>Zoom in closer to see park boundaries, trails and SOTA summits.</div>
   </div>
   <div class=""sidebar-section"" id=""boundaryLayerSection"" hidden></div>
+  <div class=""sidebar-section"" id=""saveMapSection"" hidden>
+    <div class=""sidebar-heading"">Save</div>
+    <a id=""saveMapLink"" class=""save-map-link"" href=""/save-map"" download>Save a copy of this map</a>
+    <div class=""sidebar-note"">An .html file you can open later without the app - with your rove plans and the driving routes already looked up. It uses the online Street and Satellite maps.</div>
+  </div>
   <div class=""sidebar-section"">
     <div class=""sidebar-heading"">Legend</div>
     <div><span class=""legend-swatch"" style=""background:#FFD500;""></span>Not yet activated by me</div>
@@ -413,6 +537,12 @@ namespace PotaActivatorParkActivations
 <script src=""__PROTOMAPS_JS__""></script>
 <script>
 __OSM_STYLE__
+</script>
+<script>
+// Filled in only in a saved copy of the map (MapService.ToStandaloneHtml):
+// where to ask the app for the GPS receiver's position, with the key the
+// app requires from pages it didn't serve itself - see pollGps.
+var embeddedGps = null;
 </script>
 <script>
 var parkData = __PARK_DATA__;
@@ -548,6 +678,9 @@ function buildPopupHtml(p) {
     html += '<div class=""my-line"">You have activated ' + p.myCount + ' ' + myPlural +
             ', most recently on ' + escapeHtml(p.myDate) + '.</div>';
   }
+
+  // Add to Rove / Remove from Rove - see rove.js.
+  if (window.rovePopupButtonHtml) html += rovePopupButtonHtml(p.reference);
 
   html += '</div>';
   return html;
@@ -1367,13 +1500,17 @@ var youAccuracyCircle = null;
 var youLocatedOnce = false;
 var recenterButton = null;
 
-// Live location needs the app's local server behind this page (to know which
-// source is selected, and for the COM-port receiver's fixes). A saved,
-// standalone copy (Save Map, opened later via file://) has none - and
-// browsers don't allow navigator.geolocation from file:// either - so it
-// shows one clear explanation instead of polling for something that can
-// never answer.
-var gpsAvailable = location.protocol === 'http:';
+// Where the position comes from:
+//  - the map as served by the app: whatever the app's GPS dropdown picks
+//    (/gps says which, and carries the COM-port receiver's fixes)
+//  - a saved copy (Layers > Save a copy of this map, opened from a file):
+//    the GPS receiver first, asked from the app at embeddedGps.url while
+//    PAT is running on this PC with a receiver that has a fix; otherwise
+//    Windows / browser location, which Chrome does give a page opened from
+//    a file once allowed (tested 2026-10-08).
+var servedByApp = location.protocol === 'http:';
+var gpsAppUrl = servedByApp ? '/gps' : (window.embeddedGps ? embeddedGps.url : null);
+var gpsAvailable = servedByApp || !!(navigator.geolocation);
 
 // Bottom-right readout showing whether fresh position fixes are actually
 // arriving and how far off they're expected to be - the ""you are here"" dot
@@ -1420,7 +1557,7 @@ function updateGpsStatusText() {
 
   if (!gpsAvailable) {
     gpsStatusEl.hidden = false;
-    gpsStatusEl.textContent = 'GPS: not available in a saved file - use Show Map in the app for live tracking.';
+    gpsStatusEl.textContent = 'GPS: this browser gives a saved map no location - use Show Map in the app for live tracking.';
     return;
   }
 
@@ -1438,7 +1575,7 @@ function updateGpsStatusText() {
     return;
   }
 
-  var label = gpsSource === 'serial' ? 'GPS (' + gpsPortName + ')' : 'Windows location';
+  var label = gpsSource === 'serial' ? 'GPS (' + gpsPortName + ')' : gpsSource === 'direct' ? 'GPS receiver' : 'Windows location';
   var parts = [];
   if (gpsSource === 'browser' && geoPermissionState && geoPermissionState !== 'granted') parts.push('permission: ' + geoPermissionState);
   if (lastFixTimestamp !== null) {
@@ -1876,18 +2013,41 @@ function clearYouMarker(keepFollow) {
 
 var lastFixSeq = null;
 
+function setGpsSource(source, port) {
+  if (source === gpsSource && port === gpsPortName) return;
+  gpsSource = source;
+  gpsPortName = port;
+  lastFixSeq = null;
+  clearYouMarker();
+  if (source === 'browser') requestBrowserLocation(); // don't wait up to 10 s for the first one
+}
+
 function pollGps() {
-  fetch('/gps', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (data) {
+  // A saved copy reading the receiver itself (direct-gps.js) - first choice
+  // whenever it has a fresh fix.
+  var direct = window.directGps ? directGps.latest() : null;
+  if (direct) {
+    setGpsSource('direct', '');
+    if (direct.seq !== lastFixSeq) {
+      lastFixSeq = direct.seq;
+      onLocationFound({ latlng: L.latLng(direct.lat, direct.lon), accuracy: direct.accuracy, timestamp: direct.time });
+    }
+    updateGpsStatusText();
+    return;
+  }
+  // A saved copy with no way to reach the app: Windows / browser location.
+  if (!gpsAppUrl) { setGpsSource('browser', ''); updateGpsStatusText(); return; }
+  fetch(gpsAppUrl, { cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function (data) {
     gpsServerLost = false;
     var source = data.mode === 'serial' && data.serial ? 'serial' : (data.mode === 'browser' ? 'browser' : 'off');
-    var port = source === 'serial' ? data.serial.port : '';
-    if (source !== gpsSource || port !== gpsPortName) {
-      gpsSource = source;
-      gpsPortName = port;
-      lastFixSeq = null;
-      clearYouMarker();
-      if (source === 'browser') requestBrowserLocation(); // don't wait up to 10 s for the first one
-    }
+    // A saved copy uses the receiver only while it has a fix, and Windows
+    // location the rest of the time - including when the app's dropdown is
+    // off - since nobody there is choosing a source.
+    if (!servedByApp && !(source === 'serial' && data.serial.fix)) source = 'browser';
+    setGpsSource(source, source === 'serial' ? data.serial.port : '');
 
     if (source === 'serial') {
       gpsStatusMessage = data.serial.status || '';
@@ -1908,7 +2068,11 @@ function pollGps() {
     }
     updateGpsStatusText();
   }).catch(function () {
-    gpsServerLost = true;
+    if (servedByApp) {
+      gpsServerLost = true;
+    } else {
+      setGpsSource('browser', ''); // a saved copy, and the app isn't running
+    }
     updateGpsStatusText();
   });
 }
@@ -1958,6 +2122,18 @@ if (gpsAvailable) {
 } else {
   updateGpsStatusText();
 }
+</script>
+<script>
+__DIRECT_GPS_JS__
+</script>
+<script>
+// Filled in only in a saved copy of the map (MapService.ToStandaloneHtml):
+// the app's rove plans and their cached routes, since a saved copy has no
+// app behind it - see rove.js.
+var embeddedRove = null;
+</script>
+<script>
+__ROVE_JS__
 </script>
 </body>
 </html>";

@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace PotaActivatorParkActivations
+namespace PotaActivationTool
 {
     // The GPS dropdown's choice in Form1, remembered between runs: Off, the
     // COM port a GPS receiver is on (its own fix is used directly - see

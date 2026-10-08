@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="POTA Activation Tool.csproj" />
+  <Project Path="Tools/GenerateParkElevations/GenerateParkElevations.csproj" />
+</Solution>
