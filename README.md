@@ -7,7 +7,7 @@ Built by Jeremy S. Gaynor, K5JSG.
 ## Features
 
 - **Load all parks for a state** directly from the POTA API, complete with county, elevation, and boundary data.
-- **Import an ADIF log** and automatically mark which parks you've already activated (optional for the map, which opens as soon as a state's parks are loaded).
+- **Import an ADIF log** and automatically mark which parks you've already activated (optional for the map, which opens as soon as a state's parks are loaded) Pick your log once in **Settings** and it's read automatically every time you load parks.
 - **2-fer / 3-fer detection ("Xfer's")** — flags parks whose boundaries overlap, or that share a National Scenic/Historic Trail, so you know which activations can count for multiple parks at once.
 - **SOTA cross-reference** — shows any [Summits on the Air](https://www.sotamaps.org/) summit that falls within a park's real boundary, matched by geometry rather than a pre-built cross-reference list.
 - **WWFF/KFF cross-reference**, auto-downloaded and kept up to date.

@@ -65,6 +65,7 @@ namespace PotaActivationTool
         // MapServer), so changing it takes effect on an already-open map
         // within a second or two, no need to click Show Map again.
         private GpsSettings _gpsSettings = new GpsSettings();
+        private AppSettings _appSettings = new AppSettings();
         private readonly GpsService _gpsService = new GpsService();
 
         // Offline map download (see OfflineMapService and buttonMapOk_Click).
@@ -303,6 +304,7 @@ namespace PotaActivationTool
             pictureBoxLogo.Image = AppLogo.Image;
             ConfigureHttpClient();
             AddPotaLoginMenu();
+            AddSettingsMenu();
 
             // Sourced from Application.ProductVersion (the assembly's
             // informational version, driven by the .csproj's own <Version> -
@@ -415,6 +417,7 @@ namespace PotaActivationTool
 
             comboBoxState.SelectedIndexChanged += ComboBoxState_SelectedIndexChanged;
             _gpsSettings = GpsSettings.Load(GetWritableAppDataFolder());
+            _appSettings = AppSettings.Load(GetWritableAppDataFolder());
             RefreshGpsPortList();
             ApplyGpsSettings();
             UpdateButtonStates();
@@ -1062,6 +1065,9 @@ namespace PotaActivationTool
             buttonLoadParks.Enabled = stateSelected;
             SetButtonHighlight(buttonLoadParks, stateSelected && !_parksLoaded);
 
+            // With an ADIF file chosen in Settings it's loaded automatically
+            // after every parks load, so the button isn't needed.
+            buttonLoadAdif.Visible = !_appSettings.HasAdifPath;
             buttonLoadAdif.Enabled = _parksLoaded;
             SetButtonHighlight(buttonLoadAdif, _parksLoaded && !_adifLoaded);
 
@@ -1386,6 +1392,7 @@ namespace PotaActivationTool
                 return;
             }
             string stateCode = comboBoxState.SelectedValue.ToString()!;
+            bool loaded = false;
             SetBusy(true);
             try
             {
@@ -1542,6 +1549,7 @@ namespace PotaActivationTool
                     ? $" {sotaMatchedParks} park(s) may contain a SOTA summit - verify you're within its Activation Zone before claiming a SOTA activation."
                     : "";
                 textBoxStatus.Text = $"Loaded {_parks.Count} parks for {stateCode}.{ferNote}{trailNote}{sotaNote}";
+                loaded = true;
             }
             catch (Exception ex)
             {
@@ -1552,6 +1560,25 @@ namespace PotaActivationTool
             {
                 SetBusy(false);
             }
+
+            if (loaded && _appSettings.HasAdifPath)
+                await LoadSavedAdifAsync(textBoxStatus.Text + " ");
+        }
+
+        // The ADIF file chosen in Settings, read again after each parks load
+        // (so QSOs logged since last time are always picked up). The parks
+        // load's own status (Xfer's/trail/SOTA notes) is kept in front.
+        private async Task LoadSavedAdifAsync(string statusPrefix)
+        {
+            string path = _appSettings.AdifPath.Trim();
+            if (!File.Exists(path))
+            {
+                textBoxStatus.Text = statusPrefix + "No parks are marked as activated - the ADIF file chosen in Settings wasn't found.";
+                MessageBox.Show("The ADIF file chosen in Settings wasn't found:\n" + path +
+                    "\n\nChoose it again in Settings, or clear it there to use the Load ADIF File button.");
+                return;
+            }
+            await LoadAdifAsync(path, statusPrefix);
         }
 
         private async void buttonLoadAdif_Click(object sender, EventArgs e)
@@ -1572,10 +1599,18 @@ namespace PotaActivationTool
                 Title = "Select your ADIF log file"
             };
             if (dlg.ShowDialog() != DialogResult.OK) return;
+            await LoadAdifAsync(dlg.FileName, "");
+        }
+
+        // Marks the loaded parks completed from an ADIF log - from the Load
+        // ADIF File button or the file chosen in Settings. statusPrefix goes
+        // in front of the result on the status line.
+        private async Task LoadAdifAsync(string path, string statusPrefix)
+        {
             SetBusy(true);
             try
             {
-                string text = File.ReadAllText(dlg.FileName);
+                string text = File.ReadAllText(path);
                 _myActivations = PotaService.ParseMyActivationDates(text);
                 var completedRefs = new HashSet<string>(_myActivations.Keys, StringComparer.OrdinalIgnoreCase);
                 _parks.RemoveAll(p => p.OutOfState);
@@ -1641,26 +1676,27 @@ namespace PotaActivationTool
                 int unresolvedCount = outOfStateRefs.Count - extraParks.Count;
                 if (extraParks.Count > 0 && unresolvedCount == 0)
                 {
-                    textBoxStatus.Text = $"Marked {matchedInState} in-state park(s) complete, plus {extraParks.Count} out-of-state park(s) found.";
+                    textBoxStatus.Text = statusPrefix + $"Marked {matchedInState} in-state park(s) complete, plus {extraParks.Count} out-of-state park(s) found.";
                 }
                 else if (extraParks.Count > 0 && unresolvedCount > 0)
                 {
-                    textBoxStatus.Text = $"Marked {matchedInState} in-state park(s) complete, plus {extraParks.Count} out-of-state park(s) found. " +
+                    textBoxStatus.Text = statusPrefix + $"Marked {matchedInState} in-state park(s) complete, plus {extraParks.Count} out-of-state park(s) found. " +
                         $"({unresolvedCount} other reference(s) in the ADIF didn't match any known park.)";
                 }
                 else if (unresolvedCount > 0)
                 {
-                    textBoxStatus.Text = $"Marked {matchedInState} in-state park(s) complete. Found {unresolvedCount} out-of-state reference(s) " +
+                    textBoxStatus.Text = statusPrefix + $"Marked {matchedInState} in-state park(s) complete. Found {unresolvedCount} out-of-state reference(s) " +
                         "in the ADIF, but none matched a park in the POTA master list.";
                 }
                 else
                 {
-                    textBoxStatus.Text = $"Marked {matchedInState} of {_parks.Count} parks as completed from ADIF.";
+                    textBoxStatus.Text = statusPrefix + $"Marked {matchedInState} of {_parks.Count} parks as completed from ADIF.";
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error reading ADIF file: " + ex.Message);
+                textBoxStatus.Text = statusPrefix + "Couldn't read the ADIF file, so no parks are marked as activated.";
             }
             finally
             {
@@ -2038,6 +2074,26 @@ namespace PotaActivationTool
             };
             menuStrip1.Items.Insert(0, _potaLoginMenuItem);
             UpdatePotaLoginMenu();
+        }
+
+        // ---- Settings (menu bar): see SettingsForm. Saving a new ADIF file
+        // with parks already loaded reads it right away.
+        private void AddSettingsMenu()
+        {
+            var settingsItem = new ToolStripMenuItem("Settings...");
+            settingsItem.Click += async (s, e) =>
+            {
+                using var form = new SettingsForm(_appSettings);
+                if (form.ShowDialog(this) != DialogResult.OK) return;
+                string oldPath = _appSettings.AdifPath;
+                _appSettings = new AppSettings { AdifPath = form.AdifPath };
+                _appSettings.Save(GetWritableAppDataFolder());
+                if (!_busy) UpdateButtonStates();
+                bool changed = !string.Equals(oldPath, _appSettings.AdifPath, StringComparison.OrdinalIgnoreCase);
+                if (changed && _appSettings.HasAdifPath && _parksLoaded && !_busy && _allRawParks.Count > 0)
+                    await LoadSavedAdifAsync("");
+            };
+            menuStrip1.Items.Insert(menuStrip1.Items.IndexOf(helpToolStripMenuItem), settingsItem);
         }
 
         private void UpdatePotaLoginMenu()
